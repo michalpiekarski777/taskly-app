@@ -1,0 +1,11 @@
+[project]
+name = "test-agent"
+version = "0.1.0"
+description = "Agent that writes and updates unit tests for pull request changes"
+requires-python = ">=3.12"
+dependencies = []
+
+[tool.pytest.ini_options]
+testpaths = ["tests"]
+pythonpath = ["src"]
+addopts = "-ra"

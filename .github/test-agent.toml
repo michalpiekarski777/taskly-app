@@ -1,0 +1,47 @@
+# Policy for the test agent workflow.
+#
+# `source` and `exclude` decide which changed files are worth testing.
+# `tests` is the allowlist of files the agent may create or modify; any other
+# path in the agent's patch makes the whole patch invalid.
+#
+# `exclude` must cover the coverage exclusions of each component
+# (backend/pyproject.toml, frontend/vite.config.ts); a test enforces this.
+
+schema_version = 1
+
+[limits]
+max_files = 20
+max_added_lines = 4000
+max_patch_bytes = 500_000
+
+[components.backend]
+source = ["backend/app/**/*.py"]
+exclude = [
+  "backend/app/__init__.py",
+  "backend/app/**/__init__.py",
+  "backend/app/main.py",
+  "backend/app/**/schemas.py",
+  "backend/app/**/models.py",
+  "backend/app/**/types.py",
+  "backend/app/**/constants.py",
+]
+tests = ["backend/tests/**/test_*.py"]
+
+[components.frontend]
+source = ["frontend/src/**/*.{ts,tsx}"]
+exclude = [
+  "frontend/src/main.tsx",
+  "frontend/src/test/**",
+  "frontend/src/**/*.test.{ts,tsx}",
+  "frontend/src/**/*.stories.{ts,tsx}",
+  "frontend/src/**/*.d.ts",
+  "frontend/src/design-system/**",
+  "frontend/src/**/types.ts",
+  "frontend/src/**/*.types.ts",
+  "frontend/src/**/index.ts",
+  "frontend/src/**/constants.{ts,tsx}",
+  "frontend/src/**/*.constants.ts",
+  "frontend/src/features/todos/api/queryKeys.ts",
+  "frontend/src/lib/queryClient.ts",
+]
+tests = ["frontend/src/**/*.test.{ts,tsx}"]
