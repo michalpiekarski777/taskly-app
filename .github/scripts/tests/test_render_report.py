@@ -1,7 +1,9 @@
 import json
 
+import pytest
+
 import render_report
-from render_report import MARKER, read_junit, render, text
+from render_report import MARKER, code, read_junit, render, text
 
 AGENT_REPORT = {
     "schema_version": 1,
@@ -41,13 +43,35 @@ JUNIT = """<?xml version="1.0"?>
 """
 
 
-def test_text_neutralises_markdown_html_and_mentions():
+def test_text_neutralises_html_tables_and_mentions():
     assert text("a | b") == "a \\| b"
-    assert text("<img src=x onerror=alert(1)>") == "&lt;img src=x onerror=alert(1)&gt;"
+    assert text("<img src=x>") == "&lt;img src=x&gt;"
     assert text("ping @octocat") == "ping @​octocat"
     assert text("line one\nline two") == "line one line two"
-    assert text("`code`") == "'code'"
     assert text("x" * 400).endswith("…") and len(text("x" * 400)) == 300
+
+
+@pytest.mark.parametrize(
+    "payload",
+    [
+        "![x](https://evil.example/pixel.png)",
+        "[click here](https://phish.example)",
+        "visit https://phish.example now",
+        "visit www.phish.example now",
+        "**bold** _it_ ~~gone~~ `code`",
+    ],
+)
+def test_text_cannot_produce_links_images_or_formatting(payload):
+    escaped = text(payload)
+    assert "](" not in escaped and "https://" not in escaped and "www." not in escaped
+    for char in "[]!*_~`":
+        assert escaped.count(char) == escaped.count("\\" + char)
+
+
+def test_code_keeps_text_literal_inside_the_span():
+    assert code("test_x[a<b] & c") == "`test_x[a<b] & c`"
+    assert code("a`b|c") == "`a'b\\|c`"
+    assert code(None) == "—"
 
 
 def test_read_junit_counts_each_outcome(tmp_path):
@@ -76,7 +100,13 @@ def test_render_full_report():
                     "after": {"lines": {"pct": 55.5}, "branches": {"pct": 60.0}},
                     "delta": {"lines": 13.5, "branches": 10.0},
                     "files": [
-                        {"path": "backend/app/api/health.py", "lines_before": 0.0, "lines_after": 100.0, "delta": 100.0}
+                        {
+                            "path": "backend/app/api/health.py",
+                            "lines_before": 0.0,
+                            "lines_after": 100.0,
+                            "branches_before": None,
+                            "branches_after": 100.0,
+                        }
                     ],
                 }
             }
@@ -87,13 +117,18 @@ def test_render_full_report():
     )
     assert markdown.startswith(MARKER)
     assert "Commit: `0123456789ab`." in markdown
-    assert "| `backend/app/api/health.py` | 🆕 create | `backend/tests/api/test_health.py` | ✅ passed (2 attempts) |" in markdown
+    assert (
+        "| `backend/app/api/health.py` | 🆕 create | `backend/tests/api/test_health.py` "
+        "| ✅ passed (2 attempts) | pytest\\-unit\\-tests, run\\-and\\-fix\\-tests | New endpoint without tests |"
+    ) in markdown
+    assert "| `frontend/src/styles.ts` | ⏭️ skip | — | — |" in markdown
     assert "| backend | 30 | 0 | 0 | 0 | 3.2s |" in markdown
     assert "| backend | 42.00% | 55.50% | +13.50 pp | 50.00% | 60.00% | +10.00 pp |" in markdown
+    assert "| `backend/app/api/health.py` | 0.00% | 100.00% | — | 100.00% |" in markdown
     assert "⚠️ backend/tests/x.py: reads environment variables" in markdown
     assert "Model: `anthropic/claude-sonnet-5-5`" in markdown
     assert "Tokens: 1200 in / 340 out" in markdown
-    assert "[Workflow run](https://github.com/o/r/actions/runs/1)" in markdown
+    assert "[Workflow run](<https://github.com/o/r/actions/runs/1>)" in markdown
 
 
 def test_render_without_any_inputs():
@@ -114,13 +149,30 @@ def test_render_lists_failing_tests_and_validation_errors():
     assert "- `backend: t::x`" in markdown
 
 
+def test_render_survives_a_malformed_agent_report():
+    report = {
+        "model": "not a dict",
+        "targets": ["oops", {"attempts": "2", "skills": [1, None], "decision": 5, "result": ["x"]}],
+        "usage": {"input_tokens": "@org/admins ![x](https://evil/p)", "output_tokens": 1, "duration_seconds": "12"},
+        "errors": "not a list",
+    }
+    markdown = render("committed", report=report, coverage={"components": {"backend": "bad"}})
+    assert "@org" not in markdown
+    assert "https://evil" not in markdown
+    assert "Tokens:" not in markdown and "Agent time:" not in markdown
+
+
+def test_render_ignores_non_https_run_urls():
+    assert "Workflow run" not in render("skipped", run_url="javascript:alert(1)")
+
+
 def test_main_reads_files_and_ignores_missing_ones(tmp_path):
     report = tmp_path / "report.json"
     report.write_text(json.dumps(AGENT_REPORT))
     junit = tmp_path / "junit.xml"
     junit.write_text(JUNIT)
     out = tmp_path / "report.md"
-    code = render_report.main(
+    code_ = render_report.main(
         [
             "--status", "tests-failed",
             "--agent-report", str(report),
@@ -131,6 +183,22 @@ def test_main_reads_files_and_ignores_missing_ones(tmp_path):
         ]
     )
     markdown = out.read_text()
-    assert code == 0
+    assert code_ == 0
     assert "| backend | 1 | 1 | 1 | 1 |" in markdown
     assert "| frontend |" not in markdown
+    assert "Report problems" not in markdown
+
+
+def test_main_reports_unreadable_inputs(tmp_path):
+    report = tmp_path / "report.json"
+    report.write_text("{truncated")
+    junit = tmp_path / "junit.xml"
+    junit.write_text("<testsuites><testcase")
+    out = tmp_path / "report.md"
+    render_report.main(
+        ["--status", "agent-failed", "--agent-report", str(report), "--junit", f"backend={junit}", "--out", str(out)]
+    )
+    markdown = out.read_text()
+    assert "### Report problems" in markdown
+    assert "report.json could not be read" in markdown
+    assert "junit.xml could not be parsed" in markdown

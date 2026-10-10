@@ -56,9 +56,29 @@ def test_backend_delta_lists_only_files_whose_coverage_changed(write):
     assert result["after"]["lines"] == {"covered": 13, "total": 16, "pct": 81.25}
     assert result["delta"] == {"lines": 22.92, "branches": 75.0}
     assert result["files"] == [
-        {"path": "backend/app/a.py", "lines_before": 50.0, "lines_after": 100.0, "delta": 50.0},
-        {"path": "backend/app/c.py", "lines_before": None, "lines_after": 25.0, "delta": 25.0},
+        {
+            "path": "backend/app/a.py",
+            "lines_before": 50.0,
+            "lines_after": 100.0,
+            "branches_before": 25.0,
+            "branches_after": 100.0,
+        },
+        {
+            "path": "backend/app/c.py",
+            "lines_before": None,
+            "lines_after": 25.0,
+            "branches_before": None,
+            "branches_after": 100.0,
+        },
     ]
+
+
+def test_files_with_only_branch_coverage_changes_are_listed(write):
+    before = write("b.json", pytest_report({"app/a.py": (10, 10, 1, 2)}))
+    after = write("a.json", pytest_report({"app/a.py": (10, 10, 2, 2)}))
+    result = coverage_delta.compare(coverage_delta.read_pytest(before), coverage_delta.read_pytest(after))
+    assert [f["path"] for f in result["files"]] == ["backend/app/a.py"]
+    assert result["files"][0]["branches_after"] == 100.0
 
 
 def test_files_without_statements_count_as_fully_covered(write):

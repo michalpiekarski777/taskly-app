@@ -29,13 +29,17 @@ def git_name_status(repo: Path, base: str, head: str) -> list[tuple[str, str]]:
     for revision in (base, head):
         if not _REVISION.match(revision):
             raise ValueError(f"Invalid revision: {revision!r}")
-    output = subprocess.run(
+    result = subprocess.run(
         ["git", "-C", str(repo), "diff", "--name-status", "-z", "--find-renames", f"{base}...{head}"],
-        check=True,
         capture_output=True,
         text=True,
-    ).stdout
-    return parse_name_status(output)
+    )
+    if result.returncode != 0:
+        # `base...head` needs the merge base, so a shallow clone is not enough.
+        raise RuntimeError(
+            f"git diff {base}...{head} failed (check out with fetch-depth: 0): {result.stderr.strip()}"
+        )
+    return parse_name_status(result.stdout)
 
 
 def parse_name_status(output: str) -> list[tuple[str, str]]:

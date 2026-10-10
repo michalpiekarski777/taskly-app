@@ -51,6 +51,7 @@ def test_accepts_new_and_modified_test_files(base, policy):
         BACKEND_TEST: "added",
         FRONTEND_TEST: "modified",
     }
+    assert result.components == ["backend", "frontend"]
 
 
 def test_accepts_an_empty_patch(policy):
@@ -120,6 +121,17 @@ def test_rejects_binary_files(base, policy):
         "import fs from 'fs'",
         "const cp = require('child_process')",
         "const f = new Function('return 1')",
+        "import json, subprocess",
+        "from os import system",
+        "import importlib",
+        "const cp = await import('node:child_process')",
+        "import { readFileSync } from 'node:fs'",
+        "new XMLHttpRequest()",
+        "new WebSocket('wss://evil.example')",
+        "leak = dict(os.environ)",
+        "leak = {**os.environ}",
+        "body: JSON.stringify(process.env)",
+        "Object.entries(process.env)",
     ],
 )
 def test_rejects_dangerous_code(base, policy, line):
@@ -129,7 +141,17 @@ def test_rejects_dangerous_code(base, policy, line):
 
 @pytest.mark.parametrize(
     "line",
-    ["result = session.exec(query)", "cursor.execute(sql)", "from http import HTTPStatus"],
+    [
+        "result = session.exec(query)",
+        "cursor.execute(sql)",
+        "from http import HTTPStatus",
+        "pattern = re.compile(r'x')",
+        "import app.features.socket_utils",
+        "from os import path",
+        "expect(url).toContain('http')",
+        "vi.stubGlobal('fetch', vi.fn())",
+        "const { request } = await import('./http')",
+    ],
 )
 def test_allows_lookalikes_of_dangerous_code(base, policy, line):
     base.write(BACKEND_TEST, GOOD_PYTHON_TEST + "\n" + line + "\n")
@@ -154,6 +176,7 @@ def test_enforces_patch_size_limit(policy):
         ("def test_b():\n    assert True\n", "trivially true assertion"),
         ("def test_b():\n    pass\n", "without assertions"),
         ("def test_b():\n    assert os.environ\n", "reads environment variables"),
+        ("def test_b():\n    assert fetch('/x')\n", "calls fetch directly"),
     ],
 )
 def test_warns_about_weak_tests(base, policy, snippet, warning):

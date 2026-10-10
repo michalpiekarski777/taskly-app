@@ -6,6 +6,11 @@ text files, stays within the size limits and adds no obviously dangerous code.
 Weaker signals, such as skipped tests or tests without assertions, are
 reported as warnings.
 
+The code patterns are a heuristic that catches careless or naive misuse; they
+cannot make untrusted code safe. The real protection is that generated tests
+only ever run in a sandbox without network access, secrets or runner files
+(see .github/scripts/sandbox_run.sh).
+
 Usage:
     validate_patch.py --patch changes.patch [--out validation.json]
 
@@ -27,17 +32,26 @@ REGULAR_FILE_MODE = "100644"
 
 # Added code matching these makes the patch invalid: unit tests have no reason
 # to spawn processes, open sockets, evaluate strings or touch CI secrets.
+_PY_DANGEROUS_MODULES = r"(?:subprocess|socket|ctypes|shutil|requests|urllib|http\.client|importlib|multiprocessing|pty)"
+_JS_DANGEROUS_MODULES = r"(?:child_process|fs|fs/promises|net|http|https|os|worker_threads|dgram|tls|vm)"
 FORBIDDEN_PATTERNS = {
     "imports a process, network or filesystem module": re.compile(
-        r"^\s*(?:import|from)\s+(?:subprocess|socket|ctypes|shutil|requests|urllib|http\.client)\b"
-        r"|from\s+['\"](?:node:)?(?:child_process|fs|fs/promises|net|http|https|os|worker_threads)['\"]"
-        r"|require\s*\("
+        rf"^\s*import\s+[^#]*\b{_PY_DANGEROUS_MODULES}\b"
+        rf"|^\s*from\s+{_PY_DANGEROUS_MODULES}\b"
+        rf"|from\s+os\s+import\s+[^#]*\b(?:system|popen|exec\w*|spawn\w*|fork\w*|kill)\b"
+        rf"|\b(?:from|import)\s*\(?\s*['\"`](?:node:|{_JS_DANGEROUS_MODULES}['\"`/])"
+        r"|\brequire\s*\(|process\.binding"
     ),
-    "runs shell commands": re.compile(r"\bos\.(?:system|popen|exec\w*|spawn\w*)\s*\("),
+    "runs shell commands": re.compile(r"\bos\.(?:system|popen|exec\w*|spawn\w*|fork\w*)\s*\("),
     "evaluates code from strings": re.compile(
-        r"(?<![\w.])(?:eval|exec)\s*\(|__import__\s*\(|new\s+Function\s*\("
+        r"(?<![\w.])(?:eval|exec|compile)\s*\(|__import__\s*\(|new\s+Function\s*\(|\bFunction\s*\("
     ),
-    "references CI secrets": re.compile(r"GITHUB_TOKEN|LLM_API_KEY|ACTIONS_\w*TOKEN|ACTIONS_RUNTIME"),
+    "uses network APIs": re.compile(r"\b(?:XMLHttpRequest|WebSocket|EventSource|sendBeacon)\b"),
+    "dumps the whole environment": re.compile(
+        r"dict\(\s*os\.environ\s*\)|os\.environ\.(?:items|copy|values|keys)\s*\("
+        r"|\{\s*\*\*os\.environ|(?:JSON\.stringify|Object\.(?:entries|keys|values|assign))\(\s*(?:\{\s*)?\.{0,3}process\.env"
+    ),
+    "references CI secrets": re.compile(r"GITHUB_TOKEN|LLM_API_KEY|ACTIONS_\w*TOKEN|ACTIONS_RUNTIME|ACTIONS_ID_TOKEN"),
 }
 
 WARNING_PATTERNS = {
@@ -47,6 +61,7 @@ WARNING_PATTERNS = {
     ),
     "focuses tests (only)": re.compile(r"\b(?:it|test|describe)\.only\b|\bf(?:it|describe)\s*\("),
     "reads environment variables": re.compile(r"os\.environ|os\.getenv|process\.env"),
+    "calls fetch directly": re.compile(r"(?<![\w.])fetch\s*\(|globalThis\.fetch\s*\("),
     "contains a trivially true assertion": re.compile(
         r"assert\s+True\b|expect\(\s*true\s*\)\.toBe\(\s*true\s*\)"
     ),
@@ -176,6 +191,8 @@ class ValidationResult:
     errors: list[str]
     warnings: list[str]
     files: list[dict]
+    # Components whose tests the patch touches, i.e. the suites to re-run.
+    components: list[str] = field(default_factory=list)
 
 
 def validate(text: str, policy: Policy) -> ValidationResult:
@@ -208,7 +225,8 @@ def validate(text: str, policy: Policy) -> ValidationResult:
         }
         for f in files
     ]
-    return ValidationResult(not errors, errors, warnings, summary)
+    components = sorted({c.name for f in files if (c := policy.test_component(f.path))})
+    return ValidationResult(not errors, errors, warnings, summary, components)
 
 
 def _file_errors(change: FileChange, policy: Policy) -> list[str]:

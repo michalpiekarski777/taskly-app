@@ -82,3 +82,11 @@ def test_main_diffs_from_the_merge_base(repo, tmp_path, monkeypatch):
     assert result["components"]["frontend"]["changed_sources"] == ["frontend/src/lib/http.ts"]
     assert github_output.read_text() == "has_testable_changes=true\ncomponents=backend,frontend\n"
     assert base
+
+
+def test_reports_a_missing_merge_base_clearly(repo):
+    first = repo.commit("first")
+    repo.git("checkout", "-q", "--orphan", "unrelated")
+    unrelated = repo.commit("unrelated history")
+    with pytest.raises(RuntimeError, match="fetch-depth: 0"):
+        detect_changes.git_name_status(repo.root, first, unrelated)

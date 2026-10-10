@@ -61,17 +61,12 @@ def compare(before: tuple[dict, dict], after: tuple[dict, dict]) -> dict:
     changed_files = []
     for path in sorted(files_before.keys() | files_after.keys()):
         old, new = files_before.get(path), files_after.get(path)
-        old_pct = old["lines"]["pct"] if old else None
-        new_pct = new["lines"]["pct"] if new else None
-        if old_pct != new_pct:
-            changed_files.append(
-                {
-                    "path": path,
-                    "lines_before": old_pct,
-                    "lines_after": new_pct,
-                    "delta": round((new_pct or 0) - (old_pct or 0), 2),
-                }
-            )
+        entry: dict[str, object] = {"path": path}
+        for metric in METRICS:
+            entry[f"{metric}_before"] = old[metric]["pct"] if old else None
+            entry[f"{metric}_after"] = new[metric]["pct"] if new else None
+        if any(entry[f"{m}_before"] != entry[f"{m}_after"] for m in METRICS):
+            changed_files.append(entry)
     return {
         "before": totals_before,
         "after": totals_after,
