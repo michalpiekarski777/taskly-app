@@ -52,6 +52,13 @@ export function selectTodos(
           (a.due_date ?? '9999').localeCompare(b.due_date ?? '9999') ||
           b.id - a.id
         )
+      if (sort === 'title')
+        return (
+          a.title.localeCompare(b.title, 'en', {
+            sensitivity: 'base',
+            numeric: true,
+          }) || b.id - a.id
+        )
       return b.created_at.localeCompare(a.created_at) || b.id - a.id
     })
 }
