@@ -44,6 +44,7 @@ export function TodoFilters({
           { value: 'newest', label: 'Newest' },
           { value: 'priority', label: 'Priority' },
           { value: 'due', label: 'Due date' },
+          { value: 'title', label: 'Title (A–Z)' },
         ]}
       />
     </section>
