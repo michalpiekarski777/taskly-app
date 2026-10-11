@@ -133,26 +133,36 @@ def decisions_section(report: dict) -> list[str]:
     targets = [t for t in _list(report.get("targets")) if isinstance(t, dict)]
     if not targets:
         return []
-    lines = [
-        "### Agent decisions",
-        "",
-        "| Source file | Decision | Test file | Result | Skills | Reason |",
-        "| --- | --- | --- | --- | --- | --- |",
-    ]
+    # Long paths make wide tables unreadable in a PR comment, so each file pair and
+    # each decision with its reason share a cell, and columns without data are left out.
+    show_result = any(_label(t.get("result")) not in ("not-run", "skipped", "") for t in targets)
+    show_skills = any(_list(t.get("skills")) for t in targets)
+    header = ["File", "Decision"] + ["Result"] * show_result + ["Skills"] * show_skills
+    lines = ["### Agent decisions", "", _row(header), _row(["---"] * len(header))]
     for target in targets:
-        decision, result = _label(target.get("decision")), _label(target.get("result"))
-        result_text = RESULT_ICONS.get(result) or (text(result) if result else "—")
-        attempts = target.get("attempts")
-        if _is_number(attempts) and attempts > 1:
-            result_text += f" ({int(attempts)} attempts)"
-        skills = ", ".join(str(s) for s in _list(target.get("skills")))
-        lines.append(
-            f"| {code(target.get('source'))} "
-            f"| {DECISION_ICONS.get(decision) or text(decision or '—')} "
-            f"| {code(target.get('test_file'))} | {result_text} "
-            f"| {text(skills) or '—'} | {text(target.get('reason') or '')} |"
-        )
+        file_cell = code(target.get("source"))
+        if target.get("test_file"):
+            file_cell += f"<br>→ {code(target.get('test_file'))}"
+        decision = _label(target.get("decision"))
+        decision_cell = DECISION_ICONS.get(decision) or text(decision or "—")
+        if target.get("reason"):
+            decision_cell += f"<br><sub>{text(target.get('reason'))}</sub>"
+        cells = [file_cell, decision_cell]
+        if show_result:
+            result = _label(target.get("result"))
+            result_text = RESULT_ICONS.get(result) or (text(result) if result else "—")
+            attempts = target.get("attempts")
+            if _is_number(attempts) and attempts > 1:
+                result_text += f" ({int(attempts)} attempts)"
+            cells.append(result_text)
+        if show_skills:
+            cells.append(text(", ".join(str(s) for s in _list(target.get("skills")))) or "—")
+        lines.append(_row(cells))
     return lines + [""]
+
+
+def _row(cells: list[str]) -> str:
+    return "| " + " | ".join(cells) + " |"
 
 
 def tests_section(junit: dict[str, dict]) -> list[str]:
@@ -242,9 +252,10 @@ def footer(report: dict | None, run_url: str | None) -> list[str]:
             parts.append(f"Model: {code(name)}")
         usage = _dict(report.get("usage"))
         tokens_in, tokens_out = usage.get("input_tokens"), usage.get("output_tokens")
-        if _is_number(tokens_in) and _is_number(tokens_out):
+        # Zero usage means no model was called (the stub engine), so there is nothing to show.
+        if _is_number(tokens_in) and _is_number(tokens_out) and tokens_in + tokens_out > 0:
             parts.append(f"Tokens: {int(tokens_in)} in / {int(tokens_out)} out")
-        if _is_number(usage.get("duration_seconds")):
+        if _is_number(usage.get("duration_seconds")) and usage["duration_seconds"] >= 1:
             parts.append(f"Agent time: {usage['duration_seconds']:.0f}s")
     if run_url and run_url.startswith("https://"):
         parts.append(f"[Workflow run](<{run_url.replace('>', '%3E')}>)")

@@ -117,11 +117,13 @@ def test_render_full_report():
     )
     assert markdown.startswith(MARKER)
     assert "Commit: `0123456789ab`." in markdown
+    assert "| File | Decision | Result | Skills |" in markdown
     assert (
-        "| `backend/app/api/health.py` | 🆕 create | `backend/tests/api/test_health.py` "
-        "| ✅ passed (2 attempts) | pytest\\-unit\\-tests, run\\-and\\-fix\\-tests | New endpoint without tests |"
+        "| `backend/app/api/health.py`<br>→ `backend/tests/api/test_health.py` "
+        "| 🆕 create<br><sub>New endpoint without tests</sub> "
+        "| ✅ passed (2 attempts) | pytest\\-unit\\-tests, run\\-and\\-fix\\-tests |"
     ) in markdown
-    assert "| `frontend/src/styles.ts` | ⏭️ skip | — | — |" in markdown
+    assert "| `frontend/src/styles.ts` | ⏭️ skip<br><sub>Styling only</sub> | — | — |" in markdown
     assert "| backend | 30 | 0 | 0 | 0 | 3.2s |" in markdown
     assert "| backend | 42.00% | 55.50% | +13.50 pp | 50.00% | 60.00% | +10.00 pp |" in markdown
     assert "| `backend/app/api/health.py` | 0.00% | 100.00% | — | 100.00% |" in markdown
@@ -160,6 +162,28 @@ def test_render_survives_a_malformed_agent_report():
     assert "@org" not in markdown
     assert "https://evil" not in markdown
     assert "Tokens:" not in markdown and "Agent time:" not in markdown
+
+
+def test_render_leaves_out_empty_columns_and_zero_usage():
+    report = {
+        "model": {"provider": "none", "name": "stub:smoke"},
+        "targets": [
+            {
+                "source": "frontend/src/a.ts",
+                "decision": "skip",
+                "test_file": "frontend/src/a.test.ts",
+                "reason": "Test file exists",
+                "skills": [],
+                "result": "not-run",
+            }
+        ],
+        "usage": {"input_tokens": 0, "output_tokens": 0, "duration_seconds": 0.0},
+    }
+    markdown = render("nothing-to-add", report=report)
+    assert "| File | Decision |\n| --- | --- |" in markdown
+    assert "| `frontend/src/a.ts`<br>→ `frontend/src/a.test.ts` | ⏭️ skip<br><sub>Test file exists</sub> |" in markdown
+    assert "Tokens:" not in markdown and "Agent time:" not in markdown
+    assert "Model: `none/stub:smoke`" in markdown
 
 
 def test_render_ignores_non_https_run_urls():

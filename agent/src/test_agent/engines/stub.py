@@ -42,7 +42,8 @@ it('exports its public API', () => {{
 
 
 def run(repo: Path, changes: dict) -> Report:
-    scenario = os.environ.get("TEST_AGENT_STUB_SCENARIO", "smoke")
+    # Unset repository variables reach the workflow as empty strings.
+    scenario = os.environ.get("TEST_AGENT_STUB_SCENARIO") or "smoke"
     if scenario not in SCENARIOS:
         raise ValueError(f"Unknown TEST_AGENT_STUB_SCENARIO {scenario!r}; expected one of {SCENARIOS}")
     report = Report(engine="stub", model=Model(provider="none", name=f"stub:{scenario}"))

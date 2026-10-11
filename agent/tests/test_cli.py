@@ -59,6 +59,16 @@ def test_stub_creates_smoke_tests_and_reports_decisions(tmp_path, repo):
     assert not (repo / "backend/tests/core").exists()
 
 
+def test_empty_settings_fall_back_to_defaults(tmp_path, repo, monkeypatch):
+    # GitHub passes unset repository variables as empty strings.
+    monkeypatch.setenv("TEST_AGENT_ENGINE", "")
+    monkeypatch.setenv("TEST_AGENT_STUB_SCENARIO", "")
+    code, report = run_agent(tmp_path, repo, ["backend/app/api/health.py"])
+    assert code == cli.EXIT_OK
+    assert report["engine"] == "stub"
+    assert report["model"]["name"] == "stub:smoke"
+
+
 def test_stub_failing_scenario_writes_failing_tests(tmp_path, repo, monkeypatch):
     monkeypatch.setenv("TEST_AGENT_STUB_SCENARIO", "failing")
     run_agent(tmp_path, repo, ["backend/app/api/health.py"])
